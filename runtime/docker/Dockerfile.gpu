@@ -1,0 +1,38 @@
+# 基础镜像：基于 CUDA 11.3 + Ubuntu 20.04（适配 GPU 环境）
+FROM nvidia/cuda:11.3.1-cudnn8-devel-ubuntu20.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PATH=/usr/local/cuda/bin:$PATH
+ENV LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH
+
+# 安装系统依赖（参考官方文档）
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git wget build-essential cmake libboost-dev libboost-system-dev \
+    libopenblas-dev libssl-dev && \
+    rm -rf /var/lib/apt/lists/*
+
+# 下载并解压 ONNX Runtime GPU 和 FFmpeg（通过 build-args 传入地址）
+ARG ONNXRUNTIME_URL
+ARG FFMPEG_URL
+WORKDIR /workspace
+RUN wget $ONNXRUNTIME_URL && \
+    tar -zxvf onnxruntime-linux-x64-gpu-1.14.0.tgz && \
+    mv onnxruntime-linux-x64-gpu-1.14.0 onnxruntime-gpu && \
+    wget $FFMPEG_URL && \
+    tar -xvf ffmpeg-master-latest-linux64-gpl-shared.tar.xz && \
+    mv ffmpeg-master-latest-linux64-gpl-shared ffmpeg
+
+# 编译 FunASR Runtime（GPU 版本）
+WORKDIR /workspace/FunASR/runtime/onnxruntime
+RUN mkdir build && cd build && \
+    cmake -DCMAKE_BUILD_TYPE=release .. \
+      -DONNXRUNTIME_DIR=/workspace/onnxruntime-gpu \
+      -DFFMPEG_DIR=/workspace/ffmpeg \
+      -DGPU=ON && \
+    make -j 4
+
+# 暴露服务端口（如 10095）
+EXPOSE 10095
+
+# 启动命令（默认启动离线转写服务）
+CMD ["bash", "/workspace/FunASR/runtime/run_server.sh", "--gpu", "true"]
